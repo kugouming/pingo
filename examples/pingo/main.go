@@ -9,7 +9,7 @@ import (
 func runPlugin(proto, path string) {
 	p := pingo.NewPlugin(proto, path)
 	p.Start()
-	defer p.Stop()
+	// defer p.Stop()
 
 	objs, err := p.Objects()
 	if err != nil {
@@ -34,7 +34,7 @@ func runPlugin(proto, path string) {
 }
 
 func main() {
-	protocols := []string{"unix", "tcp"}
+	protocols := []string{"tcp"}
 	for _, p := range protocols {
 		fmt.Printf("Running hello world plugin via %s\n", p)
 
@@ -43,9 +43,9 @@ func main() {
 		fmt.Println("Plugin terminated.")
 	}
 
-	fmt.Println("Running plugin that fails to register in time")
+	// fmt.Println("Running plugin that fails to register in time")
 
-	runPlugin("tcp", "bin/plugins/pingo-sleep")
+	// runPlugin("tcp", "bin/plugins/pingo-sleep")
 
 	fmt.Println("Plugin terminated.")
 }

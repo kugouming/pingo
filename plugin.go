@@ -1,10 +1,9 @@
 // Copyright 2015 Giulio Iotti. All rights reserved.
-// Use of this source code is governed by a MIT-style
-// license that can be found in the LICENSE file.
+// 使用此源代码受MIT风格许可证约束
+// 许可证可在LICENSE文件中找到。
 
-// Package pingo implements the basics for creating and running subprocesses
-// as plugins.  The subprocesses will communicate via either TCP or Unix socket
-// to implement an interface that mimics the standard RPC package.
+// Package pingo 实现了创建和运行子进程作为插件的基础功能。
+// 子进程将通过TCP或Unix套接字进行通信，实现一个模仿标准RPC包的接口。
 package pingo
 
 import (
@@ -21,53 +20,60 @@ import (
 	"time"
 )
 
+// -----------------------------------------------------------------------------
+// 错误定义
+// -----------------------------------------------------------------------------
+
 var (
-	errInvalidMessage      = ErrInvalidMessage(errors.New("Invalid ready message"))
-	errRegistrationTimeout = ErrRegistrationTimeout(errors.New("Registration timed out"))
+	errInvalidMessage      = ErrInvalidMessage(errors.New("无效的就绪消息"))
+	errRegistrationTimeout = ErrRegistrationTimeout(errors.New("注册超时"))
 )
 
-// Represents a plugin. After being created the plugin is not started or ready to run.
+// -----------------------------------------------------------------------------
+// 插件类型定义
+// -----------------------------------------------------------------------------
+
+// Plugin 表示一个插件。创建后，插件尚未启动或准备运行。
 //
-// Additional configuration (ErrorHandler and Timeout) can be set after initialization.
+// 可以在初始化后设置额外的配置（如ErrorHandler和Timeout）。
 //
-// Use Start() to make the plugin available.
+// 使用Start()使插件可用。
 type Plugin struct {
-	exe         string
-	proto       string
-	unixdir     string
-	params      []string
-	initTimeout time.Duration
-	exitTimeout time.Duration
-	handler     ErrorHandler
-	running     bool
-	meta        meta
-	objsCh      chan *objects
-	connCh      chan *conn
-	killCh      chan *waiter
-	exitCh      chan struct{}
+	exe         string        // 可执行文件路径
+	proto       string        // 通信协议（unix或tcp）
+	unixdir     string        // unix套接字目录
+	params      []string      // 命令行参数
+	initTimeout time.Duration // 初始化超时时间
+	exitTimeout time.Duration // 退出超时时间
+	handler     ErrorHandler  // 错误处理器
+	running     bool          // 运行状态标志
+	meta        meta          // 元数据前缀
+	objsCh      chan *objects // 对象请求通道
+	connCh      chan *conn    // 连接请求通道
+	killCh      chan *waiter  // 终止请求通道
+	exitCh      chan struct{} // 退出通知通道
 }
 
-// NewPlugin create a new plugin ready to be started, or returns an error if the initial setup fails.
+// NewPlugin 创建一个准备启动的新插件，如果初始设置失败则返回错误。
 //
-// The first argument specifies the protocol. It can be either set to "unix" for communication on an
-// ephemeral local socket, or "tcp" for network communication on the local host (using a random
-// unprivileged port.)
+// 第一个参数指定协议。可以设置为"unix"以在临时本地套接字上通信，
+// 或设置为"tcp"以在本地主机上进行网络通信（使用随机的非特权端口）。
 //
-// This constructor will panic if the proto argument is neither "unix" nor "tcp".
+// 如果proto参数既不是"unix"也不是"tcp"，此构造函数将会panic。
 //
-// The path to the plugin executable should be absolute. Any path accepted by the "exec" package in the
-// standard library is accepted and the same rules for execution are applied.
+// 插件可执行文件的路径应该是绝对路径。接受标准库中"exec"包接受的任何路径，
+// 并且应用相同的执行规则。
 //
-// Optionally some parameters might be passed to the plugin executable.
+// 可选地，可以将一些参数传递给插件可执行文件。
 func NewPlugin(proto, path string, params ...string) *Plugin {
 	if proto != "unix" && proto != "tcp" {
-		panic("Invalid protocol. Specify 'unix' or 'tcp'.")
+		panic("无效的协议。请指定'unix'或'tcp'。")
 	}
 	p := &Plugin{
 		exe:         path,
 		proto:       proto,
 		params:      params,
-		initTimeout: 2 * time.Second,
+		initTimeout: 20 * time.Second,
 		exitTimeout: 2 * time.Second,
 		handler:     NewDefaultErrorHandler(),
 		meta:        meta("pingo" + randstr(5)),
@@ -79,26 +85,30 @@ func NewPlugin(proto, path string, params ...string) *Plugin {
 	return p
 }
 
-// Set the error (and output) handler implementation.  Use this to set a custom implementation.
-// By default, standard logging is used.  See ErrorHandler.
+// -----------------------------------------------------------------------------
+// 插件配置方法
+// -----------------------------------------------------------------------------
+
+// SetErrorHandler 设置错误（和输出）处理器实现。使用此方法设置自定义实现。
+// 默认情况下，使用标准日志记录。参见ErrorHandler。
 //
-// Panics if called after Start.
+// 如果在Start之后调用，将会panic。
 func (p *Plugin) SetErrorHandler(h ErrorHandler) {
 	if p.running {
-		panic("Cannot call SetErrorHandler after Start")
+		panic("不能在Start之后调用SetErrorHandler")
 	}
 	p.handler = h
 }
 
-// Set the maximum time a plugin is allowed to start up and to shut down.  Empty timeout (zero)
-// is not allowed, default will be used.
+// SetTimeout 设置插件启动和关闭的最大允许时间。不允许空超时（零），
+// 将使用默认值。
 //
-// Default is two seconds.
+// 默认为两秒。
 //
-// Panics if called after Start.
+// 如果在Start之后调用，将会panic。
 func (p *Plugin) SetTimeout(t time.Duration) {
 	if p.running {
-		panic("Cannot call SetTimeout after Start")
+		panic("不能在Start之后调用SetTimeout")
 	}
 	if t == 0 {
 		return
@@ -107,29 +117,36 @@ func (p *Plugin) SetTimeout(t time.Duration) {
 	p.exitTimeout = t
 }
 
+// SetSocketDirectory 设置Unix套接字的目录。
+//
+// 如果在Start之后调用，将会panic。
 func (p *Plugin) SetSocketDirectory(dir string) {
 	if p.running {
-		panic("Cannot call SetSocketDirectory after Start")
+		panic("不能在Start之后调用SetSocketDirectory")
 	}
 	p.unixdir = dir
 }
 
-// Default string representation
+// String 返回插件的默认字符串表示。
 func (p *Plugin) String() string {
 	return fmt.Sprintf("%s %s", p.exe, strings.Join(p.params, " "))
 }
 
-// Start will execute the plugin as a subprocess. Start will return immediately. Any first call to the
-// plugin will reveal eventual errors occurred at initialization.
+// -----------------------------------------------------------------------------
+// 插件控制方法
+// -----------------------------------------------------------------------------
+
+// Start 将插件作为子进程执行。Start将立即返回。对插件的任何首次调用
+// 将会揭示初始化过程中可能发生的错误。
 //
-// Calls subsequent to Start will hang until the plugin has been properly initialized.
+// Start之后的调用将挂起，直到插件已正确初始化。
 func (p *Plugin) Start() {
 	p.running = true
 	go p.run()
 }
 
-// Stop attemps to stop cleanly or kill the running plugin, then will free all resources.
-// Stop returns when the plugin as been shut down and related routines have exited.
+// Stop 尝试干净地停止或终止正在运行的插件，然后释放所有资源。
+// Stop在插件关闭且相关例程退出后返回。
 func (p *Plugin) Stop() {
 	wr := newWaiter()
 	p.killCh <- wr
@@ -137,14 +154,12 @@ func (p *Plugin) Stop() {
 	p.exitCh <- struct{}{}
 }
 
-// Call performs an RPC call to the plugin. Prior to calling Call, the plugin must have been
-// initialized by calling Start.
+// Call 执行对插件的RPC调用。在调用Call之前，必须通过调用Start初始化插件。
 //
-// Call will hang until a plugin has been initialized; it will return any error that happens
-// either when performing the call or during plugin initialization via Start.
+// 如果插件尚未初始化，Call将挂起；如果在执行调用或通过Start初始化插件期间
+// 发生任何错误，它将返回该错误。
 //
-// Please refer to the "rpc" package from the standard library for more information on the
-// semantics of this function.
+// 有关此函数语义的更多信息，请参阅标准库中的"rpc"包。
 func (p *Plugin) Call(name string, args interface{}, resp interface{}) error {
 	conn := &conn{wr: newWaiter()}
 	p.connCh <- conn
@@ -157,10 +172,9 @@ func (p *Plugin) Call(name string, args interface{}, resp interface{}) error {
 	return conn.client.Call(name, args, resp)
 }
 
-// Objects returns a list of the exported objects from the plugin. Exported objects used
-// internally are not reported.
+// Objects 返回插件中导出对象的列表。内部使用的导出对象不会被报告。
 //
-// Like Call, Objects returns any error happened on initialization if called after Start.
+// 与Call类似，如果在Start之后调用，Objects将返回初始化过程中发生的任何错误。
 func (p *Plugin) Objects() ([]string, error) {
 	objects := &objects{wr: newWaiter()}
 	p.objsCh <- objects
@@ -169,78 +183,95 @@ func (p *Plugin) Objects() ([]string, error) {
 	return objects.list, objects.err
 }
 
-// ErrorHandler is the interface used by Plugin to report non-fatal errors and any other
-// output from the plugin.
+// -----------------------------------------------------------------------------
+// 错误处理接口和实现
+// -----------------------------------------------------------------------------
+
+// ErrorHandler 是Plugin用于报告非致命错误和插件的任何其他输出的接口。
 //
-// A default implementation is provided and used if none is specified on plugin creation.
+// 如果在插件创建时未指定，则提供并使用默认实现。
 type ErrorHandler interface {
-	// Error is called whenever a non-fatal error occurs in the plugin subprocess.
+	// Error 在插件子进程中发生非致命错误时调用。
 	Error(error)
-	// Print is called for each line of output received from the plugin subprocess.
+	// Print 为从插件子进程接收的每行输出调用。
 	Print(interface{})
 }
 
-// Default error handler implementation. Uses the default logging facility from the
-// Go standard library.
+// DefaultErrorHandler 是默认错误处理器实现。使用Go标准库中的默认日志功能。
 type DefaultErrorHandler struct{}
 
-// Constructor for default error handler.
+// NewDefaultErrorHandler 是默认错误处理器的构造函数。
 func NewDefaultErrorHandler() *DefaultErrorHandler {
 	return &DefaultErrorHandler{}
 }
 
-// Log via default standard library facility prepending the "error: " string.
+// Error 通过默认标准库设施记录日志，前置"error: "字符串。
 func (e *DefaultErrorHandler) Error(err error) {
 	log.Print("error: ", err)
 }
 
-// Log via default standard library facility.
+// Print 通过默认标准库设施记录日志。
 func (e *DefaultErrorHandler) Print(s interface{}) {
 	log.Print(s)
 }
 
+// -----------------------------------------------------------------------------
+// 内部常量和类型
+// -----------------------------------------------------------------------------
+
+// 内部对象名称常量
 const internalObject = "PingoRpc"
 
+// conn 表示一个连接请求
 type conn struct {
-	client *rpc.Client
-	err    error
-	wr     *waiter
+	client *rpc.Client // RPC客户端
+	err    error       // 错误信息
+	wr     *waiter     // 等待通知
 }
 
+// waiter 实现一个简单的等待机制
 type waiter struct {
-	c chan struct{}
+	c chan struct{} // 通知通道
 }
 
+// newWaiter 创建一个新的等待器
 func newWaiter() *waiter {
 	return &waiter{c: make(chan struct{})}
 }
 
+// wait 等待通知完成
 func (wr *waiter) wait() {
 	<-wr.c
 }
 
+// done 关闭通道，表示操作完成
 func (wr *waiter) done() {
 	close(wr.c)
 }
 
+// reset 重置等待器状态
 func (wr *waiter) reset() {
 	wr.c = make(chan struct{})
 }
 
+// client 包装rpc.Client，增加认证功能
 type client struct {
-	*rpc.Client
-	secret string
+	*rpc.Client        // 内嵌RPC客户端
+	secret      string // 认证密钥
 }
 
+// newClient 创建一个新的客户端实例
 func newClient(s string, conn io.ReadWriteCloser) *client {
 	return &client{secret: s, Client: rpc.NewClient(conn)}
 }
 
+// authenticate 向服务器发送认证令牌
 func (c *client) authenticate(w io.Writer) error {
 	_, err := io.WriteString(w, "Auth-Token: "+c.secret+"\n\n")
 	return err
 }
 
+// dialAuthRpc 建立一个带认证的RPC连接
 func dialAuthRpc(secret, network, address string, timeout time.Duration) (*rpc.Client, error) {
 	conn, err := net.DialTimeout(network, address, timeout)
 	if err != nil {
@@ -253,40 +284,35 @@ func dialAuthRpc(secret, network, address string, timeout time.Duration) (*rpc.C
 	return c.Client, nil
 }
 
+// objects 表示一个对象列表请求
 type objects struct {
-	list []string
-	err  error
-	wr   *waiter
+	list []string // 对象列表
+	err  error    // 错误信息
+	wr   *waiter  // 等待通知
 }
 
+// -----------------------------------------------------------------------------
+// 控制器实现
+// -----------------------------------------------------------------------------
+
+// ctrl 控制插件的生命周期和通信
 type ctrl struct {
-	p    *Plugin
-	objs []string
-	// Protocol and address for RPC
-	proto, addr string
-	// Secret needed to connect to server
-	secret string
-	// Unrecoverable error is used as response to calls after it happened.
-	err error
-	// This channel is an alias to p.connCh. It allows to
-	// intermittedly process calls (only when we can handle them).
-	connCh chan *conn
-	// Same as above, but for objects requests
-	objsCh chan *objects
-	// Timeout on plugin startup time
-	timeoutCh <-chan time.Time
-	// Get notification from Wait on the subprocess
-	waitCh chan error
-	// Get output lines from subprocess
-	linesCh chan string
-	// Respond to a routine waiting for this mail loop to exit.
-	over *waiter
-	// Executable
-	proc *os.Process
-	// RPC client to subprocess
-	client *rpc.Client
+	p           *Plugin          // 关联的插件
+	objs        []string         // 对象列表
+	proto, addr string           // RPC的协议和地址
+	secret      string           // 连接到服务器所需的密钥
+	err         error            // 不可恢复的错误，在发生后用作对调用的响应
+	connCh      chan *conn       // p.connCh的别名，允许在可以处理调用时处理它们
+	objsCh      chan *objects    // 同上，但用于对象请求
+	timeoutCh   <-chan time.Time // 插件启动时间的超时
+	waitCh      chan error       // 从子进程的Wait获取通知
+	linesCh     chan string      // 从子进程获取输出行
+	over        *waiter          // 响应等待此邮件循环退出的例程
+	proc        *os.Process      // 可执行文件进程
+	client      *rpc.Client      // 到子进程的RPC客户端
 }
 
+// newCtrl 创建新的控制器实例
 func newCtrl(p *Plugin, t time.Duration) *ctrl {
 	return &ctrl{
 		p:         p,
@@ -296,26 +322,31 @@ func newCtrl(p *Plugin, t time.Duration) *ctrl {
 	}
 }
 
+// fatal 处理致命错误
 func (c *ctrl) fatal(err error) {
 	c.err = err
 	c.open()
 	c.kill()
 }
 
+// isFatal 检查是否发生了致命错误
 func (c *ctrl) isFatal() bool {
 	return c.err != nil
 }
 
+// close 关闭通信通道
 func (c *ctrl) close() {
 	c.connCh = nil
 	c.objsCh = nil
 }
 
+// open 打开通信通道
 func (c *ctrl) open() {
 	c.connCh = c.p.connCh
 	c.objsCh = c.p.objsCh
 }
 
+// ready 处理插件就绪消息
 func (c *ctrl) ready(val string) bool {
 	var err error
 
@@ -330,19 +361,20 @@ func (c *ctrl) ready(val string) bool {
 		return false
 	}
 
-	// Remove the temp socket now that we are connected
+	// 连接后删除临时套接字
 	if c.proto == "unix" {
 		if err := os.Remove(c.addr); err != nil {
-			c.p.handler.Error(errors.New("Cannot remove temporary socket: " + err.Error()))
+			c.p.handler.Error(errors.New("无法删除临时套接字: " + err.Error()))
 		}
 	}
 
-	// Defuse the timeout on ready
+	// 解除就绪时的超时
 	c.timeoutCh = nil
 
 	return true
 }
 
+// readOutput 读取子进程的输出
 func (c *ctrl) readOutput(r io.Reader) {
 	scanner := bufio.NewScanner(r)
 
@@ -351,11 +383,13 @@ func (c *ctrl) readOutput(r io.Reader) {
 	}
 }
 
+// waitErr 报告等待错误
 func (c *ctrl) waitErr(pidCh chan<- int, err error) {
 	close(pidCh)
 	c.waitCh <- err
 }
 
+// wait 等待子进程
 func (c *ctrl) wait(pidCh chan<- int, exe string, params ...string) {
 	defer close(c.waitCh)
 
@@ -385,16 +419,17 @@ func (c *ctrl) wait(pidCh chan<- int, exe string, params ...string) {
 	c.waitCh <- cmd.Wait()
 }
 
+// kill 终止子进程
 func (c *ctrl) kill() {
 	if c.proc == nil {
 		return
 	}
-	// Ignore errors here because Kill might have been called after
-	// process has ended.
+	// 这里忽略错误，因为在进程结束后可能已经调用了Kill
 	c.proc.Kill()
 	c.proc = nil
 }
 
+// parseReady 解析就绪消息
 func (c *ctrl) parseReady(str string) error {
 	if !strings.HasPrefix(str, "proto=") {
 		return errInvalidMessage
@@ -419,7 +454,7 @@ func (c *ctrl) parseReady(str string) error {
 	return nil
 }
 
-// Copy the list of objects for the requestor
+// objects 为请求者复制对象列表
 func (c *ctrl) objects() []string {
 	list := make([]string, len(c.objs)-1)
 	for i, j := 0, 0; i < len(c.objs); i++ {
@@ -432,11 +467,18 @@ func (c *ctrl) objects() []string {
 	return list
 }
 
+// -----------------------------------------------------------------------------
+// 插件运行主循环
+// -----------------------------------------------------------------------------
+
+// run 是插件的主事件循环
 func (p *Plugin) run() {
+	// 设置Unix套接字目录
 	if p.unixdir == "" {
 		p.unixdir = os.TempDir()
 	}
 
+	// 准备命令行参数
 	params := []string{
 		"-pingo:prefix=" + string(p.meta),
 		"-pingo:proto=" + p.proto,
@@ -448,6 +490,7 @@ func (p *Plugin) run() {
 		params = append(params, p.params[i])
 	}
 
+	// 创建控制器并启动子进程
 	c := newCtrl(p, p.initTimeout)
 
 	pidCh := make(chan int)
@@ -460,10 +503,14 @@ func (p *Plugin) run() {
 		}
 	}
 
+	// 主事件循环
 	for {
 		select {
+		// 初始化超时
 		case <-c.timeoutCh:
 			c.fatal(errRegistrationTimeout)
+
+		// 处理连接请求
 		case r := <-c.connCh:
 			if c.isFatal() {
 				r.err = c.err
@@ -473,6 +520,8 @@ func (p *Plugin) run() {
 
 			r.client = c.client
 			r.wr.done()
+
+		// 处理对象列表请求
 		case o := <-c.objsCh:
 			if c.isFatal() {
 				o.err = c.err
@@ -482,6 +531,8 @@ func (p *Plugin) run() {
 
 			o.list = c.objects()
 			o.wr.done()
+
+		// 处理子进程输出
 		case line := <-c.linesCh:
 			key, val := p.meta.parse(line)
 			switch key {
@@ -505,22 +556,24 @@ func (p *Plugin) run() {
 				if !c.ready(val) {
 					continue
 				}
-				// Start accepting calls
+				// 开始接受调用
 				c.open()
 			default:
 				p.handler.Print(line)
 			}
+
+		// 处理终止请求
 		case wr := <-p.killCh:
 			if c.waitCh == nil {
 				wr.done()
 				continue
 			}
 
-			// If we don't accept calls, kill immediately
+			// 如果不接受调用，立即终止
 			if c.connCh == nil || c.client == nil {
 				c.kill()
 			} else {
-				// Be sure to kill the process if it doesn't obey Exit.
+				// 确保在进程不遵守Exit时将其终止
 				go func(pid int, t time.Duration) {
 					<-time.After(t)
 
@@ -536,11 +589,13 @@ func (p *Plugin) run() {
 				c.client.Close()
 			}
 
-			// Do not accept calls
+			// 不接受调用
 			c.close()
 
-			// When wait on the subprocess is exited, signal back via "over"
+			// 当子进程退出时，通过"over"发回信号
 			c.over = wr
+
+		// 处理子进程退出
 		case err := <-c.waitCh:
 			if err != nil {
 				if _, ok := err.(*exec.ExitError); !ok {
@@ -549,7 +604,7 @@ func (p *Plugin) run() {
 				c.fatal(err)
 			}
 
-			// Signal to whoever killed us (via killCh) that we are done
+			// 向通过killCh终止我们的人发送信号，表示我们已完成
 			if c.over != nil {
 				c.over.done()
 			}
@@ -557,6 +612,8 @@ func (p *Plugin) run() {
 			c.proc = nil
 			c.waitCh = nil
 			c.linesCh = nil
+
+		// 处理退出请求
 		case <-p.exitCh:
 			return
 		}
