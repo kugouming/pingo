@@ -1,4 +1,4 @@
-PKG=github.com/dullgiulio/pingo
+PKG=github.com/kugouming/pingo
 BINDIR=bin
 BINS=pingo
 PLUGINS=pingo-hello-world pingo-sleep
