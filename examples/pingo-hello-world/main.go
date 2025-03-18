@@ -2,7 +2,8 @@ package main
 
 import (
 	"fmt"
-	"github.com/dullgiulio/pingo"
+
+	"github.com/kugouming/pingo"
 )
 
 type Plugin struct{}
