@@ -47,7 +47,7 @@ type Plugin struct {
 	exitTimeout time.Duration // 退出超时时间
 	handler     ErrorHandler  // 错误处理器
 	running     bool          // 运行状态标志
-	meta        meta          // 元数据前缀
+	msgCh       msgChannel    // 逻辑消息通道
 	objsCh      chan *objects // 对象请求通道
 	connCh      chan *conn    // 连接请求通道
 	killCh      chan *waiter  // 终止请求通道
@@ -76,7 +76,7 @@ func NewPlugin(proto, path string, params ...string) *Plugin {
 		initTimeout: 20 * time.Second,
 		exitTimeout: 2 * time.Second,
 		handler:     NewDefaultErrorHandler(),
-		meta:        meta("pingo" + randstr(5)),
+		msgCh:       msgChannel("pingo" + randstr(5)),
 		objsCh:      make(chan *objects),
 		connCh:      make(chan *conn),
 		killCh:      make(chan *waiter),
@@ -480,7 +480,7 @@ func (p *Plugin) run() {
 
 	// 准备命令行参数
 	params := []string{
-		"-pingo:prefix=" + string(p.meta),
+		"-pingo:prefix=" + string(p.msgCh),
 		"-pingo:proto=" + p.proto,
 	}
 	if p.proto == "unix" && p.unixdir != "" {
@@ -534,7 +534,7 @@ func (p *Plugin) run() {
 
 		// 处理子进程输出
 		case line := <-c.linesCh:
-			key, val := p.meta.parse(line)
+			key, val := p.msgCh.parse(line)
 			switch key {
 			case "auth-token":
 				c.secret = val

@@ -1,6 +1,6 @@
 // Copyright 2015 Giulio Iotti. All rights reserved.
-// Use of this source code is governed by a MIT-style
-// license that can be found in the LICENSE file.
+// 使用此源代码受MIT风格许可证约束
+// 许可证可在LICENSE文件中找到。
 
 package pingo
 
@@ -9,24 +9,48 @@ import (
 	"strings"
 )
 
+// -----------------------------------------------------------------------------
+// 错误代码常量
+// -----------------------------------------------------------------------------
+
 const (
+	// 连接失败错误码
 	errorCodeConnFailed = "err-connection-failed"
-	errorCodeHttpServe  = "err-http-serve"
+	// HTTP服务错误码
+	errorCodeHttpServe = "err-http-serve"
 )
 
-// Error reported when connection to the external plugin has failed.
+// -----------------------------------------------------------------------------
+// 错误类型定义
+// -----------------------------------------------------------------------------
+
+// ErrConnectionFailed 表示连接到外部插件失败时报告的错误。
+// 当插件进程无法启动或网络连接无法建立时可能会出现此错误。
 type ErrConnectionFailed error
 
-// Error reported when the external plugin cannot start listening for calls.
+// ErrHttpServe 表示外部插件无法开始监听调用时报告的错误。
+// 当插件无法绑定到请求的地址或端口时可能会出现此错误。
 type ErrHttpServe error
 
-// Error reported when an invalid message is printed by the external plugin.
+// ErrInvalidMessage 表示外部插件打印的消息无效时报告的错误。
+// 当收到的消息格式错误或缺少必要信息时可能会出现此错误。
 type ErrInvalidMessage error
 
-// Error reported when the plugin fails to register before the registration
-// timeout expires.
+// ErrRegistrationTimeout 表示插件在注册超时到期前未能注册时报告的错误。
+// 当插件进程启动但未能及时完成初始化时可能会出现此错误。
 type ErrRegistrationTimeout error
 
+// -----------------------------------------------------------------------------
+// 错误处理函数
+// -----------------------------------------------------------------------------
+
+// parseError 解析来自插件的错误消息行
+// 它从行中提取错误代码和消息，并返回相应类型的错误
+// 参数:
+//   - line: 包含错误信息的文本行
+//
+// 返回:
+//   - 根据错误代码转换为特定错误类型的错误，或者原始错误
 func parseError(line string) error {
 	parts := strings.SplitN(line, ": ", 2)
 	if parts[0] == "" {

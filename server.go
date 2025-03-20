@@ -179,7 +179,7 @@ func (r *rpcServer) authConn(token string) bool {
 
 // serveConn 处理传入的连接请求
 // 读取头部信息，验证认证令牌，并将连接交给RPC服务器处理
-func (r *rpcServer) serveConn(conn io.ReadWriteCloser, h meta) {
+func (r *rpcServer) serveConn(conn io.ReadWriteCloser, h msgChannel) {
 	bconn := newBufReadWriteCloser(conn)
 	defer bconn.Close()
 
@@ -261,7 +261,7 @@ func (r *rpcServer) run() error {
 	r.running = true
 
 	// 创建元数据处理器并输出可用对象列表
-	h := meta(r.conf.prefix)
+	h := msgChannel(r.conf.prefix)
 	h.output("objects", strings.Join(r.objs, ", "))
 
 	// 根据配置选择连接类型
